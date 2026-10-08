@@ -7,10 +7,10 @@ import com.dailyrupi.app.data.ExpenseRepository
 import com.dailyrupi.app.data.ReferenceDataRepository
 import com.dailyrupi.core.expense.ExpenseRules
 import com.dailyrupi.core.masterdata.ItemChoice
-import com.dailyrupi.core.model.Expense
 import com.dailyrupi.core.model.ExpenseRequest
 import com.dailyrupi.core.model.PaymentMethod
 import com.dailyrupi.core.net.userMessage
+import com.dailyrupi.core.sync.LocalExpense
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Clock
 import java.time.LocalDate
@@ -42,6 +42,8 @@ data class ExpenseEditUiState(
     val noteError: String? = null,
     val paymentMethodError: String? = null,
     val error: String? = null,
+    /** Why the server refused the last change, when it did; saving again sends it again. */
+    val syncError: String? = null,
     val saving: Boolean = false,
     val done: Boolean = false,
 )
@@ -54,11 +56,11 @@ class ExpenseEditViewModel @Inject constructor(
     private val clock: Clock,
 ) : ViewModel() {
 
-    private val expenseId: Long? = savedState.get<Long>("id")
-    private val original: Expense? = expenseId?.let(expenses::cached)
+    private val expenseKey: String? = savedState.get<String>("key")
+    private var original: LocalExpense? = null
 
     private val _state = MutableStateFlow(
-        ExpenseEditUiState(isEdit = expenseId != null, spentAt = now().truncatedTo(ChronoUnit.MINUTES)),
+        ExpenseEditUiState(isEdit = expenseKey != null, spentAt = now().truncatedTo(ChronoUnit.MINUTES)),
     )
     val state: StateFlow<ExpenseEditUiState> = _state.asStateFlow()
 
@@ -67,20 +69,24 @@ class ExpenseEditViewModel @Inject constructor(
     }
 
     fun load() {
-        if (expenseId != null && original == null) {
-            _state.update { it.copy(loading = false, loadError = "This expense is no longer loaded. Go back and open it again.") }
-            return
-        }
         _state.update { it.copy(loading = true, loadError = null) }
         viewModelScope.launch {
             try {
+                if (expenseKey != null) {
+                    original = expenses.get(expenseKey)
+                    if (original == null) {
+                        _state.update { it.copy(loading = false, loadError = "This expense was deleted.") }
+                        return@launch
+                    }
+                }
+                val loaded = original
                 val items = referenceData.itemChoices()
                 val methods = referenceData.paymentMethods()
                 val byId = items.associateBy { it.itemId }
                 val recent = expenses.recentItemIds().mapNotNull(byId::get)
                 _state.update { current ->
-                    if (original != null) {
-                        current.withExpense(original, items, methods, recent)
+                    if (loaded != null) {
+                        current.withExpense(loaded, items, methods, recent)
                     } else {
                         val last = expenses.lastPaymentMethodId()?.takeIf { id -> methods.any { it.id == id } }
                         current.copy(
@@ -131,8 +137,10 @@ class ExpenseEditViewModel @Inject constructor(
             _state.value = checked
             return
         }
+        val item = form.item!!
+        val method = form.paymentMethods.first { it.id == form.paymentMethodId }
         val request = ExpenseRequest(
-            itemId = form.item!!.itemId,
+            itemId = item.itemId,
             paymentMethodId = form.paymentMethodId!!,
             amount = amount.value,
             spentAt = form.spentAt,
@@ -141,7 +149,7 @@ class ExpenseEditViewModel @Inject constructor(
         _state.value = checked.copy(saving = true, error = null)
         viewModelScope.launch {
             try {
-                expenses.save(expenseId, request)
+                expenses.save(expenseKey, request, item, method)
                 _state.update { it.copy(saving = false, done = true) }
             } catch (e: Exception) {
                 _state.update { it.copy(saving = false, error = e.userMessage()) }
@@ -149,7 +157,7 @@ class ExpenseEditViewModel @Inject constructor(
         }
     }
 
-    /** Leaves the screen at once; the list offers Undo before the delete reaches the server. */
+    /** Leaves the screen at once; the list offers Undo before the delete is saved. */
     fun delete() {
         val expense = original ?: return
         expenses.scheduleDelete(expense)
@@ -159,7 +167,7 @@ class ExpenseEditViewModel @Inject constructor(
     private fun now(): LocalDateTime = LocalDateTime.now(clock)
 
     private fun ExpenseEditUiState.withExpense(
-        expense: Expense,
+        expense: LocalExpense,
         items: List<ItemChoice>,
         methods: List<PaymentMethod>,
         recent: List<ItemChoice>,
@@ -183,6 +191,7 @@ class ExpenseEditViewModel @Inject constructor(
             spentAt = expense.spentAt,
             paymentMethodId = expense.paymentMethodId,
             note = expense.note.orEmpty(),
+            syncError = expense.error,
         )
     }
 }

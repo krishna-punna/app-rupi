@@ -12,15 +12,16 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Keeps the session cookies encrypted with an AES key held in the Android Keystore,
- * so they cannot be read from the app's files. No password is ever stored.
+ * Keeps a value encrypted with an AES key held in the Android Keystore, so it cannot be read
+ * from the app's files: the session cookies, and the offline login hash under another [name].
+ * No password is ever stored.
  */
-class KeystoreCookieStorage(context: Context) : CookieStorage {
+class KeystoreCookieStorage(context: Context, private val name: String = "cookies") : CookieStorage {
 
     private val prefs = context.getSharedPreferences("session", Context.MODE_PRIVATE)
 
     override fun read(): String? {
-        val stored = prefs.getString(KEY, null) ?: return null
+        val stored = prefs.getString(name, null) ?: return null
         return runCatching {
             val bytes = Base64.decode(stored, Base64.NO_WRAP)
             val cipher = Cipher.getInstance(TRANSFORMATION)
@@ -28,20 +29,20 @@ class KeystoreCookieStorage(context: Context) : CookieStorage {
             String(cipher.doFinal(bytes, IV_BYTES, bytes.size - IV_BYTES), Charsets.UTF_8)
         }.getOrElse {
             // A key lost with a device reset or restore: start logged out.
-            prefs.edit().remove(KEY).apply()
+            prefs.edit().remove(name).apply()
             null
         }
     }
 
     override fun write(value: String?) {
         if (value == null) {
-            prefs.edit().remove(KEY).apply()
+            prefs.edit().remove(name).apply()
             return
         }
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val encrypted = cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-        prefs.edit().putString(KEY, Base64.encodeToString(encrypted, Base64.NO_WRAP)).apply()
+        prefs.edit().putString(name, Base64.encodeToString(encrypted, Base64.NO_WRAP)).apply()
     }
 
     private fun key(): SecretKey {
@@ -61,7 +62,6 @@ class KeystoreCookieStorage(context: Context) : CookieStorage {
     private companion object {
         const val KEYSTORE = "AndroidKeyStore"
         const val ALIAS = "daily-rupi-session"
-        const val KEY = "cookies"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val IV_BYTES = 12
         const val TAG_BITS = 128

@@ -33,6 +33,8 @@ data class ExpenseRequest(
     val amount: BigDecimal,
     val spentAt: LocalDateTime,
     val note: String? = null,
+    /** Made on the phone for a new expense, so a create retried after a dropped connection is saved once. */
+    val clientId: String? = null,
 )
 
 @Serializable
@@ -49,6 +51,19 @@ data class Expense(
     val itemName: String,
     val paymentMethodId: Long,
     val paymentMethodName: String,
+    val clientId: String? = null,
+    val updatedAt: LocalDateTime? = null,
+)
+
+@Serializable
+data class DeletedExpense(val id: Long, val clientId: String? = null)
+
+/** What changed on the server since the app last asked; pass [nextSince] next time. */
+@Serializable
+data class ExpenseChanges(
+    val nextSince: LocalDateTime,
+    val expenses: List<Expense> = emptyList(),
+    val deleted: List<DeletedExpense> = emptyList(),
 )
 
 @Serializable

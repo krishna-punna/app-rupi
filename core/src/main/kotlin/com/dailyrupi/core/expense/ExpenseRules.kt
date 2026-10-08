@@ -1,6 +1,6 @@
 package com.dailyrupi.core.expense
 
-import com.dailyrupi.core.model.Expense
+import com.dailyrupi.core.sync.LocalExpense
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -35,10 +35,10 @@ object ExpenseRules {
 }
 
 /** One day in the expense list: its header, its expenses newest first, and their total. */
-data class ExpenseDay(val date: LocalDate, val total: BigDecimal, val expenses: List<Expense>)
+data class ExpenseDay(val date: LocalDate, val total: BigDecimal, val expenses: List<LocalExpense>)
 
-/** Groups expenses (already newest first, as the API returns them) by the day they were spent. */
-fun groupByDay(expenses: List<Expense>): List<ExpenseDay> =
+/** Groups expenses (already newest first) by the day they were spent. */
+fun groupByDay(expenses: List<LocalExpense>): List<ExpenseDay> =
     expenses.groupBy { it.spentAt.toLocalDate() }
         .map { (date, items) -> ExpenseDay(date, items.fold(BigDecimal.ZERO) { sum, e -> sum + e.amount }, items) }
         .sortedByDescending { it.date }

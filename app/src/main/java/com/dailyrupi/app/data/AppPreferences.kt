@@ -18,6 +18,15 @@ interface AppPreferences {
     suspend fun setRecentItemIds(ids: List<Long>)
     suspend fun lastPaymentMethodId(): Long?
     suspend fun setLastPaymentMethodId(id: Long)
+
+    /** How far the last sync's fetch got, as the server's local date-time. */
+    suspend fun syncSince(): String?
+    suspend fun setSyncSince(value: String?)
+
+    /** When a sync last finished, in epoch milliseconds. */
+    suspend fun lastSyncAt(): Long?
+    suspend fun setLastSyncAt(value: Long)
+
     suspend fun clearUserData()
 }
 
@@ -52,11 +61,31 @@ class DataStoreAppPreferences(private val context: Context) : AppPreferences {
         context.dataStore.edit { it[LAST_PAYMENT_METHOD] = id }
     }
 
+    override suspend fun syncSince() = prefs()[SYNC_SINCE]
+
+    override suspend fun setSyncSince(value: String?) {
+        context.dataStore.edit {
+            if (value == null) {
+                it.remove(SYNC_SINCE)
+            } else {
+                it[SYNC_SINCE] = value
+            }
+        }
+    }
+
+    override suspend fun lastSyncAt() = prefs()[LAST_SYNC_AT]
+
+    override suspend fun setLastSyncAt(value: Long) {
+        context.dataStore.edit { it[LAST_SYNC_AT] = value }
+    }
+
     override suspend fun clearUserData() {
         context.dataStore.edit {
             it.remove(USERNAME)
             it.remove(RECENT_ITEMS)
             it.remove(LAST_PAYMENT_METHOD)
+            it.remove(SYNC_SINCE)
+            it.remove(LAST_SYNC_AT)
         }
     }
 
@@ -65,5 +94,7 @@ class DataStoreAppPreferences(private val context: Context) : AppPreferences {
         val USERNAME = stringPreferencesKey("username")
         val RECENT_ITEMS = stringPreferencesKey("recent_items")
         val LAST_PAYMENT_METHOD = longPreferencesKey("last_payment_method")
+        val SYNC_SINCE = stringPreferencesKey("sync_since")
+        val LAST_SYNC_AT = longPreferencesKey("last_sync_at")
     }
 }

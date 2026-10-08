@@ -27,16 +27,27 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.dailyrupi.app.BuildConfig
 import com.dailyrupi.app.data.AuthState
+import com.dailyrupi.app.data.ExpenseRepository
 import com.dailyrupi.app.data.SessionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @HiltViewModel
-class MoreViewModel @Inject constructor(private val session: SessionManager) : ViewModel() {
+class MoreViewModel @Inject constructor(
+    private val session: SessionManager,
+    expenses: ExpenseRepository,
+) : ViewModel() {
+
+    /** Changes not on the server yet; Log out warns that they will be lost. */
+    val unsynced: StateFlow<Int> = expenses.unsynced.map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     val username: String
         get() = (session.state.value as? AuthState.LoggedIn)?.user?.username.orEmpty()
@@ -53,15 +64,17 @@ class MoreViewModel @Inject constructor(private val session: SessionManager) : V
     }
 }
 
-/** Settings: account, server address, log out and app version. */
+/** Settings: account, sync, server address, log out and app version. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MoreScreen(
+    onSync: () -> Unit,
     onChangePassword: () -> Unit,
     onChangeServer: () -> Unit,
     viewModel: MoreViewModel = hiltViewModel(),
 ) {
     val loggingOut by viewModel.loggingOut.collectAsStateWithLifecycle()
+    val unsynced by viewModel.unsynced.collectAsStateWithLifecycle()
     var confirmingLogout by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(topBar = { TopAppBar(title = { Text("More") }) }) { padding ->
@@ -69,6 +82,12 @@ fun MoreScreen(
             ListItem(
                 headlineContent = { Text("Logged in as") },
                 supportingContent = { Text(viewModel.username.ifEmpty { "–" }) },
+            )
+            HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("Sync") },
+                supportingContent = { Text(if (unsynced == 0) "All synced" else "$unsynced not synced") },
+                modifier = Modifier.clickable(onClick = onSync),
             )
             HorizontalDivider()
             ListItem(
@@ -99,6 +118,15 @@ fun MoreScreen(
         AlertDialog(
             onDismissRequest = { confirmingLogout = false },
             title = { Text("Log out?") },
+            text = {
+                Text(
+                    when (unsynced) {
+                        0 -> "Ends the session and clears this phone's data."
+                        1 -> "1 change has not reached the server and will be lost."
+                        else -> "$unsynced changes have not reached the server and will be lost."
+                    },
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     confirmingLogout = false

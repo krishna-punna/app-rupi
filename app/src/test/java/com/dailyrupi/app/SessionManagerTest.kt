@@ -5,6 +5,16 @@ import com.dailyrupi.app.data.ExpenseRepository
 import com.dailyrupi.app.data.ReferenceDataRepository
 import com.dailyrupi.app.data.SessionEvents
 import com.dailyrupi.app.data.SessionManager
+import com.dailyrupi.app.sync.PreferencesSyncCursor
+import com.dailyrupi.app.sync.SyncRunner
+import com.dailyrupi.core.auth.OfflineLogin
+import com.dailyrupi.core.sync.InMemoryLocalExpenseStore
+import com.dailyrupi.core.sync.LocalExpense
+import com.dailyrupi.core.sync.SyncEngine
+import com.dailyrupi.core.sync.SyncState
+import java.math.BigDecimal
+import java.time.LocalDate
+import java.time.LocalDateTime
 import com.dailyrupi.core.net.InMemoryCookieStorage
 import com.dailyrupi.core.net.PersistentCookieJar
 import com.dailyrupi.core.net.ServerAddress
@@ -28,9 +38,23 @@ class SessionManagerTest {
     private val scope = TestScope(UnconfinedTestDispatcher())
     private val server = "https://rupi.example.com/".toHttpUrl()
 
+    private val store = InMemoryLocalExpenseStore()
+    private val scheduler = FakeScheduler()
+    private val offlineLogin = OfflineLogin(InMemoryCookieStorage(), iterations = 1_000)
+
     private fun manager() = SessionManager(
         api, cookies, ServerAddress(), prefs,
-        ExpenseRepository(api, prefs, scope), ReferenceDataRepository(api), events, scope,
+        ExpenseRepository(store, prefs, scheduler, scope), ReferenceDataRepository(api, FakeReferenceCache()),
+        SyncRunner(SyncEngine(api, store, PreferencesSyncCursor(prefs)) { TODAY }, prefs, cookies),
+        offlineLogin, events, scope,
+    )
+
+    private suspend fun unsyncedExpense() = store.upsert(
+        LocalExpense(
+            key = "k", serverId = null, clientId = "k", amount = BigDecimal("10"), spentAt = LocalDateTime.of(2026, 10, 5, 9, 0),
+            note = null, categoryId = 1, categoryName = "Food", subCategoryId = 10, subCategoryName = "Groceries",
+            itemId = 100, itemName = "Milk", paymentMethodId = 1, paymentMethodName = "UPI", state = SyncState.CREATE,
+        ),
     )
 
     private fun storeSession() =
@@ -96,9 +120,12 @@ class SessionManagerTest {
         session.login("krishna", "pw")
         storeSession()
 
+        unsyncedExpense()
         session.logout()
 
         assertTrue(api.loggedOut)
+        assertTrue(store.all.isEmpty())
+        assertFalse(offlineLogin.isAvailable("krishna"))
         assertFalse(cookies.hasSession())
         assertEquals(emptyList<Long>(), prefs.recent)
         assertNull(prefs.lastMethod)
@@ -106,4 +133,59 @@ class SessionManagerTest {
         assertEquals(server.toString(), prefs.server)
         assertEquals(AuthState.LoggedOut(), session.state.value)
     }
+
+    @Test
+    fun withoutTheServerTheLastUserLogsInWithTheirPasswordAndChangesStayOnThePhone() = runTest {
+        prefs.server = server.toString()
+        val session = manager()
+        session.start()
+        session.login("krishna", "the right password")
+        storeSession()
+        events.sessionExpired()
+        unsyncedExpense()
+
+        api.unreachable = true
+        val wrong = runCatching { session.login("krishna", "wrong") }.exceptionOrNull()
+        assertEquals("Wrong password. 4 more tries while offline.", wrong?.message)
+
+        session.login("Krishna", "the right password")
+        assertEquals("krishna", (session.state.value as AuthState.LoggedIn).user.username)
+        assertEquals(1, store.all.size)
+    }
+
+    @Test
+    fun offlineLoginStopsAfterFiveWrongPasswordsAndForUnknownUsers() = runTest {
+        prefs.server = server.toString()
+        val session = manager()
+        session.start()
+        session.login("krishna", "the right password")
+        api.unreachable = true
+
+        assertTrue(runCatching { session.login("someone", "the right password") }.exceptionOrNull() is java.io.IOException)
+        repeat(5) { runCatching { session.login("krishna", "wrong") } }
+        assertTrue(runCatching { session.login("krishna", "the right password") }.exceptionOrNull() is java.io.IOException)
+    }
+
+    @Test
+    fun aPasswordTheServerRefusesIsNotUsableOffline() = runTest {
+        prefs.server = server.toString()
+        val session = manager()
+        session.start()
+        session.login("krishna", "old password")
+        api.loginFails = true
+        runCatching { session.login("krishna", "old password") }
+        assertFalse(offlineLogin.isAvailable("krishna"))
+    }
+
+    @Test
+    fun aTemporaryPasswordIsNotKeptForOfflineLogin() = runTest {
+        prefs.server = server.toString()
+        api.user = api.user.copy(passwordChangeRequired = true)
+        val session = manager()
+        session.start()
+        session.login("krishna", "temporary")
+        assertFalse(offlineLogin.isAvailable("krishna"))
+    }
 }
+
+private val TODAY: LocalDate = LocalDate.of(2026, 10, 5)

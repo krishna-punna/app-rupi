@@ -5,7 +5,8 @@ import com.dailyrupi.core.expense.ExpenseRules
 import com.dailyrupi.core.expense.ExpenseRules.Amount
 import com.dailyrupi.core.expense.groupByDay
 import com.dailyrupi.core.expense.pushRecent
-import com.dailyrupi.core.model.Expense
+import com.dailyrupi.core.sync.LocalExpense
+import com.dailyrupi.core.sync.SyncState
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -54,7 +55,7 @@ class RulesTest {
         )
         assertEquals(listOf(LocalDate.of(2026, 10, 5), LocalDate.of(2026, 10, 3)), days.map { it.date })
         assertEquals(BigDecimal("150.00"), days[0].total)
-        assertEquals(listOf(3L, 2L), days[0].expenses.map { it.id })
+        assertEquals(listOf(3L, 2L), days[0].expenses.map { it.serverId })
     }
 
     @Test
@@ -76,9 +77,9 @@ class RulesTest {
         assertNull(PasswordRules.problem("admin", "old", "long enough pass", "long enough pass"))
     }
 
-    private fun expense(id: Long, amount: String, at: LocalDateTime) = Expense(
-        id = id, amount = BigDecimal(amount), spentAt = at, note = null,
+    private fun expense(id: Long, amount: String, at: LocalDateTime) = LocalExpense(
+        key = "k$id", serverId = id, clientId = null, amount = BigDecimal(amount), spentAt = at, note = null,
         categoryId = 1, categoryName = "Food", subCategoryId = 2, subCategoryName = "Groceries",
-        itemId = 3, itemName = "Milk", paymentMethodId = 1, paymentMethodName = "UPI",
+        itemId = 3, itemName = "Milk", paymentMethodId = 1, paymentMethodName = "UPI", state = SyncState.SYNCED,
     )
 }

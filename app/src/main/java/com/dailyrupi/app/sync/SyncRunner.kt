@@ -7,6 +7,7 @@ import com.dailyrupi.core.net.userMessage
 import com.dailyrupi.core.sync.SyncCursor
 import com.dailyrupi.core.sync.SyncEngine
 import java.io.IOException
+import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -85,13 +86,40 @@ class SyncRunner(
         }
     }
 
+    /**
+     * Loads [day] from the server and keeps it on the phone while it is shown; null goes back to the
+     * last week and drops any other day. Returns why the day could not be loaded, or null.
+     */
+    suspend fun showDay(day: LocalDate?): String? {
+        engine.keptDay = day
+        if (day == null) {
+            engine.prune()
+            return null
+        }
+        if (!cookies.hasSession()) return SyncProblem.NeedsLogin.message
+        return try {
+            engine.loadDay(day)
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ApiException) {
+            if (e.status == UNAUTHORIZED) SyncProblem.NeedsLogin.message else e.userMessage()
+        } catch (e: IOException) {
+            DAY_OFFLINE
+        } catch (e: Exception) {
+            e.userMessage()
+        }
+    }
+
     /** After Log out or a new server: forget the last sync. */
     fun reset() {
+        engine.keptDay = null
         _status.value = SyncStatus()
     }
 
     private companion object {
         const val UNAUTHORIZED = 401
+        const val DAY_OFFLINE = "Can't reach the server. Only the last 7 days are kept on this phone."
     }
 }
 

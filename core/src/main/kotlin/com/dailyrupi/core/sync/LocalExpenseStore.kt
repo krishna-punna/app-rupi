@@ -1,5 +1,6 @@
 package com.dailyrupi.core.sync
 
+import java.time.LocalDateTime
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +19,15 @@ interface LocalExpenseStore {
 
     /** Changes to send, oldest first: unsynced and not waiting for the user to fix them. */
     suspend fun pending(): List<LocalExpense>
+
+    /** Synced expenses spent from [from] (inclusive) to [to] (exclusive). */
+    suspend fun syncedBetween(from: LocalDateTime, to: LocalDateTime): List<LocalExpense>
+
+    /**
+     * Drops synced expenses spent before [before], except those from [keepFrom] (inclusive) to
+     * [keepTo] (exclusive) when given. Changes not on the server yet are never dropped.
+     */
+    suspend fun deleteSyncedBefore(before: LocalDateTime, keepFrom: LocalDateTime?, keepTo: LocalDateTime?)
 
     suspend fun upsert(expense: LocalExpense)
     suspend fun upsertAll(expenses: List<LocalExpense>)
@@ -48,6 +58,15 @@ class InMemoryLocalExpenseStore : LocalExpenseStore {
 
     override suspend fun pending() =
         rows.values.filter { it.state != SyncState.SYNCED && it.error == null }.sortedBy { it.changedAt }
+
+    override suspend fun syncedBetween(from: LocalDateTime, to: LocalDateTime) =
+        rows.values.filter { it.state == SyncState.SYNCED && !it.spentAt.isBefore(from) && it.spentAt.isBefore(to) }
+
+    override suspend fun deleteSyncedBefore(before: LocalDateTime, keepFrom: LocalDateTime?, keepTo: LocalDateTime?) {
+        val kept = { e: LocalExpense -> keepFrom != null && keepTo != null && !e.spentAt.isBefore(keepFrom) && e.spentAt.isBefore(keepTo) }
+        rows.values.removeIf { it.state == SyncState.SYNCED && it.spentAt.isBefore(before) && !kept(it) }
+        version.value++
+    }
 
     override suspend fun upsert(expense: LocalExpense) {
         rows[expense.key] = expense

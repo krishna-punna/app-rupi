@@ -17,6 +17,17 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses WHERE state != 'SYNCED' AND error IS NULL ORDER BY changedAt")
     suspend fun pending(): List<ExpenseEntity>
 
+    /** spentAt is stored as yyyy-MM-dd'T'HH:mm:ss, so text order is time order. */
+    @Query("SELECT * FROM expenses WHERE state = 'SYNCED' AND spentAt >= :from AND spentAt < :to")
+    suspend fun syncedBetween(from: String, to: String): List<ExpenseEntity>
+
+    /** Pass the same value for [keepFrom] and [keepTo] to keep nothing. */
+    @Query(
+        "DELETE FROM expenses WHERE state = 'SYNCED' AND spentAt < :before " +
+            "AND NOT (spentAt >= :keepFrom AND spentAt < :keepTo)",
+    )
+    suspend fun deleteSyncedBefore(before: String, keepFrom: String, keepTo: String)
+
     @Query("SELECT * FROM expenses WHERE `key` = :key")
     suspend fun byKey(key: String): ExpenseEntity?
 

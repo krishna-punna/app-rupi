@@ -47,12 +47,21 @@ interface DailyRupiApi {
     @GET("api/payment-methods")
     suspend fun paymentMethods(): List<PaymentMethod>
 
+    /** [from] and [to] are yyyy-MM-dd, both inclusive; null leaves that end open. */
     @GET("api/expenses")
-    suspend fun expenses(@Query("page") page: Int, @Query("size") size: Int): ExpensePage
+    suspend fun expenses(
+        @Query("page") page: Int,
+        @Query("size") size: Int,
+        @Query("from") from: String? = null,
+        @Query("to") to: String? = null,
+    ): ExpensePage
 
-    /** Everything when [since] is null, otherwise what changed since then (a local date-time). */
+    /**
+     * Everything when [since] is null, otherwise what changed since then (a local date-time).
+     * [from] (yyyy-MM-dd) limits the first, full fetch to expenses spent on or after that day.
+     */
     @GET("api/expenses/changes")
-    suspend fun expenseChanges(@Query("since") since: String?): ExpenseChanges
+    suspend fun expenseChanges(@Query("since") since: String?, @Query("from") from: String? = null): ExpenseChanges
 
     @GET("api/expenses/summary")
     suspend fun summary(): ExpenseSummary

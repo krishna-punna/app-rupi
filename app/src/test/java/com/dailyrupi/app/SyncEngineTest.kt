@@ -8,6 +8,7 @@ import com.dailyrupi.core.sync.SyncEngine
 import com.dailyrupi.core.sync.SyncState
 import java.io.IOException
 import java.math.BigDecimal
+import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -27,7 +28,7 @@ class SyncEngineTest {
             this.value = value
         }
     }
-    private val engine = SyncEngine(api, store, cursor)
+    private val engine = SyncEngine(api, store, cursor) { TODAY }
     private val at = LocalDateTime.of(2026, 10, 5, 9, 0)
 
     private fun phoneExpense(key: String, itemId: Long = 100, amount: String = "10", changedAt: Long = 1) = LocalExpense(
@@ -147,4 +148,33 @@ class SyncEngineTest {
 
         assertNull(store.byServerId(5))
     }
+
+    @Test
+    fun loadingADayReplacesItsSyncedExpensesButKeepsChangesToSend() = runTest {
+        val day = LocalDate.of(2026, 9, 20)
+        api.addExpense(5, "10", day.atTime(9, 0))
+        api.addExpense(6, "20", day.atTime(10, 0))
+        // Deleted on the web since the phone last saw that day.
+        store.upsert(phoneExpense("gone").copy(serverId = 99, spentAt = day.atTime(8, 0), state = SyncState.SYNCED))
+        // Edited on the phone, not sent yet: the phone's copy wins.
+        store.upsert(phoneExpense("edited", amount = "77").copy(serverId = 6, spentAt = day.atTime(10, 0), state = SyncState.UPDATE))
+
+        assertEquals(2, engine.loadDay(day))
+
+        assertNull(store.byKey("gone"))
+        assertEquals(BigDecimal("77"), store.byKey("edited")!!.amount)
+        assertEquals(BigDecimal("10"), store.byServerId(5)!!.amount)
+        assertEquals("2026-09-20" to "2026-09-20", api.daysAsked.last())
+
+        // Kept while shown, dropped once the user moves off it.
+        engine.keptDay = day
+        engine.prune()
+        assertNotNull(store.byServerId(5))
+        engine.keptDay = null
+        engine.prune()
+        assertNull(store.byServerId(5))
+        assertNotNull(store.byKey("edited"))
+    }
 }
+
+private val TODAY: LocalDate = LocalDate.of(2026, 10, 5)

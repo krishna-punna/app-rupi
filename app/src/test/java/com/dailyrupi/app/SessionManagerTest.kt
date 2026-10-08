@@ -13,6 +13,7 @@ import com.dailyrupi.core.sync.LocalExpense
 import com.dailyrupi.core.sync.SyncEngine
 import com.dailyrupi.core.sync.SyncState
 import java.math.BigDecimal
+import java.time.LocalDate
 import java.time.LocalDateTime
 import com.dailyrupi.core.net.InMemoryCookieStorage
 import com.dailyrupi.core.net.PersistentCookieJar
@@ -44,7 +45,7 @@ class SessionManagerTest {
     private fun manager() = SessionManager(
         api, cookies, ServerAddress(), prefs,
         ExpenseRepository(store, prefs, scheduler, scope), ReferenceDataRepository(api, FakeReferenceCache()),
-        SyncRunner(SyncEngine(api, store, PreferencesSyncCursor(prefs)), prefs, cookies),
+        SyncRunner(SyncEngine(api, store, PreferencesSyncCursor(prefs)) { TODAY }, prefs, cookies),
         offlineLogin, events, scope,
     )
 
@@ -186,3 +187,5 @@ class SessionManagerTest {
         assertFalse(offlineLogin.isAvailable("krishna"))
     }
 }
+
+private val TODAY: LocalDate = LocalDate.of(2026, 10, 5)

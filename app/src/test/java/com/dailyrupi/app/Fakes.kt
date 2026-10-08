@@ -126,10 +126,18 @@ class FakeApi : DailyRupiApi {
         return methods
     }
 
-    override suspend fun expenses(page: Int, size: Int): ExpensePage {
-        val sorted = expenses.sortedWith(compareByDescending<Expense> { it.spentAt }.thenByDescending { it.id })
-        return ExpensePage(sorted.drop(page * size).take(size), page, size, expenses.size.toLong())
+    override suspend fun expenses(page: Int, size: Int, from: String?, to: String?): ExpensePage {
+        reachable()
+        daysAsked += from to to
+        val matching = expenses.filter { e ->
+            val day = e.spentAt.toLocalDate()
+            (from == null || !day.isBefore(LocalDate.parse(from))) && (to == null || !day.isAfter(LocalDate.parse(to)))
+        }
+        val sorted = matching.sortedWith(compareByDescending<Expense> { it.spentAt }.thenByDescending { it.id })
+        return ExpensePage(sorted.drop(page * size).take(size), page, size, matching.size.toLong())
     }
+
+    val daysAsked = mutableListOf<Pair<String?, String?>>()
 
     override suspend fun summary() = ExpenseSummary(
         LocalDate.of(2026, 10, 5), LocalDate.of(2026, 10, 5), LocalDate.of(2026, 10, 1),
@@ -163,11 +171,19 @@ class FakeApi : DailyRupiApi {
     }
 
     /** Everything each time, which the app must handle as well as an incremental answer. */
-    override suspend fun expenseChanges(since: String?): ExpenseChanges {
+    override suspend fun expenseChanges(since: String?, from: String?): ExpenseChanges {
         reachable()
         sinceAsked += since
-        return ExpenseChanges(LocalDateTime.of(2026, 10, 5, 12, 0), expenses.toList(), deleted.map { DeletedExpense(it) })
+        fromAsked += from
+        val sent = if (since == null && from != null) {
+            expenses.filter { !it.spentAt.toLocalDate().isBefore(LocalDate.parse(from)) }
+        } else {
+            expenses.toList()
+        }
+        return ExpenseChanges(LocalDateTime.of(2026, 10, 5, 12, 0), sent, deleted.map { DeletedExpense(it) })
     }
+
+    val fromAsked = mutableListOf<String?>()
 
     val sinceAsked = mutableListOf<String?>()
 

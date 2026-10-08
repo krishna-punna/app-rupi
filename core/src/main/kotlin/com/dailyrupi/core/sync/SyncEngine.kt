@@ -4,6 +4,7 @@ import com.dailyrupi.core.model.Expense
 import com.dailyrupi.core.net.ApiException
 import com.dailyrupi.core.net.DailyRupiApi
 import com.dailyrupi.core.net.apiCall
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.sync.Mutex
@@ -27,26 +28,73 @@ data class SyncResult(val sent: Int, val refused: Int, val received: Int)
  * - A change waiting on the phone is not overwritten by the server's copy; once sent, the last
  *   one saved on the server wins.
  *
+ * - Only the last week ([OfflineWindow]) stays on the phone once synced, plus the day the user
+ *   is looking at ([keptDay]); unsynced changes always stay.
+ *
  * Network failures and an expired session are thrown, leaving everything unsent for the next try.
  */
 class SyncEngine(
     private val api: DailyRupiApi,
     private val store: LocalExpenseStore,
     private val cursor: SyncCursor,
+    private val today: () -> LocalDate = LocalDate::now,
 ) {
     private val mutex = Mutex()
+
+    /** A day outside the last week that the user is looking at, kept on the phone until they move off it. */
+    @Volatile
+    var keptDay: LocalDate? = null
 
     suspend fun sync(): SyncResult = mutex.withLock {
         var sent = 0
         var refused = 0
         // Changes made while a pass was running go out in the next pass.
-        repeat(MAX_PASSES) {
+        for (pass in 1..MAX_PASSES) {
             val (passSent, passRefused) = push()
             sent += passSent
             refused += passRefused
-            if (passSent + passRefused == 0 || store.pending().isEmpty()) return@withLock SyncResult(sent, refused, pull())
+            if (passSent + passRefused == 0 || store.pending().isEmpty()) break
         }
-        SyncResult(sent, refused, pull())
+        val received = pull()
+        dropOld()
+        SyncResult(sent, refused, received)
+    }
+
+    /**
+     * Replaces the phone's synced expenses for [day] with the server's, keeping changes not sent yet.
+     * Returns how many the server has for that day.
+     */
+    suspend fun loadDay(day: LocalDate): Int = mutex.withLock {
+        val from = day.atStartOfDay()
+        val to = day.plusDays(1).atStartOfDay()
+        val server = mutableListOf<Expense>()
+        var page = 0
+        while (true) {
+            val result = apiCall { api.expenses(page, PAGE_SIZE, day.toString(), day.toString()) }
+            server += result.content
+            if (result.content.isEmpty() || server.size >= result.totalElements) break
+            page++
+        }
+        store.upsertAll(merge(server))
+        val onServer = server.mapTo(HashSet()) { it.id }
+        // Deleted on the web, or moved to another day.
+        for (local in store.syncedBetween(from, to)) {
+            val id = local.serverId
+            if (id == null || id !in onServer) store.delete(local.key)
+        }
+        server.size
+    }
+
+    /** Drops synced expenses older than the last week, except [keptDay]. */
+    suspend fun prune() = mutex.withLock { dropOld() }
+
+    private suspend fun dropOld() {
+        val kept = keptDay
+        store.deleteSyncedBefore(
+            before = OfflineWindow.start(today()).atStartOfDay(),
+            keepFrom = kept?.atStartOfDay(),
+            keepTo = kept?.plusDays(1)?.atStartOfDay(),
+        )
     }
 
     private suspend fun push(): Pair<Int, Int> {
@@ -116,9 +164,23 @@ class SyncEngine(
 
     private suspend fun pull(): Int {
         val since = cursor.since()
-        val changes = apiCall { api.expenseChanges(since?.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)) }
+        // The first fetch asks only for the last week; later ones get every change and old ones are dropped.
+        val from = if (since == null) OfflineWindow.start(today()).toString() else null
+        val changes = apiCall { api.expenseChanges(since?.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME), from) }
+        val incoming = merge(changes.expenses)
+        store.upsertAll(incoming)
+        for (deleted in changes.deleted) {
+            val local = store.byServerId(deleted.id) ?: deleted.clientId?.let { store.byKey(it) } ?: continue
+            store.delete(local.key)
+        }
+        cursor.setSince(changes.nextSince)
+        return incoming.size + changes.deleted.size
+    }
+
+    /** The server's copies to save on the phone, leaving out those with a change still to send. */
+    private suspend fun merge(expenses: List<Expense>): List<LocalExpense> {
         val incoming = mutableListOf<LocalExpense>()
-        for (expense in changes.expenses) {
+        for (expense in expenses) {
             val local = store.byServerId(expense.id) ?: expense.clientId?.let { store.byKey(it) }
             when {
                 local == null || local.state == SyncState.SYNCED ->
@@ -129,17 +191,12 @@ class SyncEngine(
                 // Otherwise the phone's change is still to be sent and wins.
             }
         }
-        store.upsertAll(incoming)
-        for (deleted in changes.deleted) {
-            val local = store.byServerId(deleted.id) ?: deleted.clientId?.let { store.byKey(it) } ?: continue
-            store.delete(local.key)
-        }
-        cursor.setSince(changes.nextSince)
-        return incoming.size + changes.deleted.size
+        return incoming
     }
 
     private companion object {
         const val MAX_PASSES = 3
+        const val PAGE_SIZE = 100
         const val NOT_FOUND = 404
         const val GONE = 410
 

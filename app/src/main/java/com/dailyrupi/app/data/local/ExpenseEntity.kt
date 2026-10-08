@@ -55,12 +55,14 @@ data class ExpenseEntity(
         /** Always the same length, so text order is time order, which the list query relies on. */
         private val SPENT_AT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
 
+        fun format(time: LocalDateTime): String = time.truncatedTo(ChronoUnit.SECONDS).format(SPENT_AT)
+
         fun from(e: LocalExpense) = ExpenseEntity(
             key = e.key,
             serverId = e.serverId,
             clientId = e.clientId,
             amount = e.amount.toPlainString(),
-            spentAt = e.spentAt.truncatedTo(ChronoUnit.SECONDS).format(SPENT_AT),
+            spentAt = format(e.spentAt),
             note = e.note,
             categoryId = e.categoryId,
             categoryName = e.categoryName,

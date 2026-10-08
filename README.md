@@ -2,7 +2,8 @@
 
 Android app for [Daily Rupi](https://github.com/krishna-punna/daily-rupi), the personal daily expense tracker.
 It talks to the existing Daily Rupi Spring Boot backend: the web app's REST API, plus the sync endpoints from
-[daily-rupi#8](https://github.com/krishna-punna/daily-rupi/pull/8), which the backend needs for offline sync.
+[daily-rupi#8](https://github.com/krishna-punna/daily-rupi/pull/8) and the date filters from
+[daily-rupi#9](https://github.com/krishna-punna/daily-rupi/pull/9), which the backend needs for offline sync.
 
 Requirements: [docs/requirements.md](docs/requirements.md).
 
@@ -15,9 +16,9 @@ Works against the backend's existing cookie session and CSRF login. Expenses are
 | Server setup (first launch, and from More) | Done: enter the address, the app checks it is a Daily Rupi server before saving |
 | A1 Log in, A2 forced password change, A5 log out | Done |
 | A3 Stay logged in | Done within the server's session: the session cookie is kept, encrypted with an Android Keystore key, across restarts. The backend still ends idle sessions after 30 minutes; token login (requirements, backend change 3) is needed to stay logged in longer |
-| E1 Add expense, E2 quick add, E3 list, E4 edit and delete with Undo, E5 summary bar | Done; the list is every expense on the phone, no paging |
+| E1 Add expense, E2 quick add, E3 list, E4 edit and delete with Undo, E5 summary bar | Done; the list shows the last 7 days, or a day picked with **Pick date** while the server is reachable. The summary bar's totals come from the server only, so they are blank offline |
 | B1 Budgets view | Done (setting budgets, B2, is still web only) |
-| Offline entry and sync | Done: add, edit and delete are saved on the phone (Room) and sent by WorkManager when the server is reachable, oldest first, each new expense with its own id so a retry is saved once. The list and summary include unsynced expenses and show "Not synced" or "Needs attention". Pull to refresh syncs both ways. The item list and payment methods are cached for offline use. Budgets stay online only |
+| Offline entry and sync | Done: add, edit and delete are saved on the phone (Room) and sent by WorkManager when the server is reachable, oldest first, each new expense with its own id so a retry is saved once. Only the last 7 days of synced expenses stay on the phone (plus the picked day while it is shown); unsynced changes always stay and are listed with "Not synced" or "Needs attention". Offline, the list shows those 7 days. Pull to refresh syncs both ways. The item list and payment methods are cached for offline use. Budgets stay online only |
 | Sync screen | Done: from the Expenses top bar (badge with the unsynced count) or More. Shows what has not synced and why, the last sync time, and Push now |
 | Offline login | Done: when the server cannot be reached, the last user who logged in online can log in with their password, checked against a salted PBKDF2 hash made on the phone and kept encrypted with a Keystore key. Forgotten on Log out, when the server refuses a login, and after 5 wrong passwords offline. Syncing waits for the next online login |
 | A4, M1, M2, N1, D1, W1, X1 | Not started (P2 and P3) |

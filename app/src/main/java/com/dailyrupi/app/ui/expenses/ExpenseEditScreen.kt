@@ -139,6 +139,7 @@ private fun ExpenseForm(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        state.syncError?.let { ErrorText("The server refused this change: $it. Fix it and save, or delete it.") }
         if (state.recent.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Recent", style = MaterialTheme.typography.labelLarge)

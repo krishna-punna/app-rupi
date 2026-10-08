@@ -31,17 +31,19 @@ import com.dailyrupi.app.ui.budgets.BudgetsScreen
 import com.dailyrupi.app.ui.expenses.ExpenseEditScreen
 import com.dailyrupi.app.ui.expenses.ExpensesScreen
 import com.dailyrupi.app.ui.more.MoreScreen
+import com.dailyrupi.app.ui.sync.SyncScreen
 
 object Routes {
     const val EXPENSES = "expenses"
     const val BUDGETS = "budgets"
     const val MORE = "more"
     const val NEW_EXPENSE = "new-expense"
-    const val EDIT_EXPENSE = "expense/{id}"
+    const val EDIT_EXPENSE = "expense/{key}"
     const val PASSWORD = "password"
     const val SERVER = "server"
+    const val SYNC = "sync"
 
-    fun editExpense(id: Long) = "expense/$id"
+    fun editExpense(key: String) = "expense/$key"
 }
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
@@ -87,11 +89,13 @@ fun MainScreen() {
                 ExpensesScreen(
                     onAdd = { navController.navigate(Routes.NEW_EXPENSE) },
                     onOpen = { navController.navigate(Routes.editExpense(it)) },
+                    onSync = { navController.navigate(Routes.SYNC) },
                 )
             }
             composable(Routes.BUDGETS) { BudgetsScreen() }
             composable(Routes.MORE) {
                 MoreScreen(
+                    onSync = { navController.navigate(Routes.SYNC) },
                     onChangePassword = { navController.navigate(Routes.PASSWORD) },
                     onChangeServer = { navController.navigate(Routes.SERVER) },
                 )
@@ -101,9 +105,15 @@ fun MainScreen() {
             }
             composable(
                 Routes.EDIT_EXPENSE,
-                arguments = listOf(navArgument("id") { type = NavType.LongType }),
+                arguments = listOf(navArgument("key") { type = NavType.StringType }),
             ) {
                 ExpenseEditScreen(onDone = { navController.popBackStack() })
+            }
+            composable(Routes.SYNC) {
+                SyncScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpen = { navController.navigate(Routes.editExpense(it)) },
+                )
             }
             composable(Routes.PASSWORD) {
                 ChangePasswordScreen(forced = false, onBack = { navController.popBackStack() })

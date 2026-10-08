@@ -4,6 +4,7 @@ import com.dailyrupi.core.model.CategoryNode
 import com.dailyrupi.core.model.ChangePasswordRequest
 import com.dailyrupi.core.model.CurrentUser
 import com.dailyrupi.core.model.Expense
+import com.dailyrupi.core.model.ExpenseChanges
 import com.dailyrupi.core.model.ExpensePage
 import com.dailyrupi.core.model.ExpenseRequest
 import com.dailyrupi.core.model.ExpenseSummary
@@ -20,7 +21,7 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 /**
- * The Daily Rupi REST API, used unchanged from the web app. Paths are relative:
+ * The Daily Rupi REST API the web app uses, plus the changes feed for offline sync. Paths are relative:
  * [BaseUrlInterceptor] points them at the server address chosen in the app.
  */
 interface DailyRupiApi {
@@ -48,6 +49,10 @@ interface DailyRupiApi {
 
     @GET("api/expenses")
     suspend fun expenses(@Query("page") page: Int, @Query("size") size: Int): ExpensePage
+
+    /** Everything when [since] is null, otherwise what changed since then (a local date-time). */
+    @GET("api/expenses/changes")
+    suspend fun expenseChanges(@Query("since") since: String?): ExpenseChanges
 
     @GET("api/expenses/summary")
     suspend fun summary(): ExpenseSummary

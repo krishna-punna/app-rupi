@@ -1,33 +1,39 @@
 # app-rupi
 
 Android app for [Daily Rupi](https://github.com/krishna-punna/daily-rupi), the personal daily expense tracker.
-It talks to the existing Daily Rupi Spring Boot backend, using its REST API unchanged.
+It talks to the existing Daily Rupi Spring Boot backend: the web app's REST API, plus the sync endpoints from
+[daily-rupi#8](https://github.com/krishna-punna/daily-rupi/pull/8), which the backend needs for offline sync.
 
 Requirements: [docs/requirements.md](docs/requirements.md).
 
 ## What works
 
-First build, online only, against the backend's existing cookie session and CSRF login.
+Works against the backend's existing cookie session and CSRF login. Expenses are saved on the phone first and synced in the background.
 
 | Requirement | Status |
 | --- | --- |
 | Server setup (first launch, and from More) | Done: enter the address, the app checks it is a Daily Rupi server before saving |
 | A1 Log in, A2 forced password change, A5 log out | Done |
 | A3 Stay logged in | Done within the server's session: the session cookie is kept, encrypted with an Android Keystore key, across restarts. The backend still ends idle sessions after 30 minutes; token login (requirements, backend change 3) is needed to stay logged in longer |
-| E1 Add expense, E2 quick add, E3 list, E4 edit and delete with Undo, E5 summary bar | Done |
+| E1 Add expense, E2 quick add, E3 list, E4 edit and delete with Undo, E5 summary bar | Done; the list is every expense on the phone, no paging |
 | B1 Budgets view | Done (setting budgets, B2, is still web only) |
-| Offline entry and sync | Not yet: needs the backend's client ids and changed-since filter first (requirements, backend change 4) |
+| Offline entry and sync | Done: add, edit and delete are saved on the phone (Room) and sent by WorkManager when the server is reachable, oldest first, each new expense with its own id so a retry is saved once. The list and summary include unsynced expenses and show "Not synced" or "Needs attention". Pull to refresh syncs both ways. The item list and payment methods are cached for offline use. Budgets stay online only |
+| Sync screen | Done: from the Expenses top bar (badge with the unsynced count) or More. Shows what has not synced and why, the last sync time, and Push now |
+| Offline login | Done: when the server cannot be reached, the last user who logged in online can log in with their password, checked against a salted PBKDF2 hash made on the phone and kept encrypted with a Keystore key. Forgotten on Log out, when the server refuses a login, and after 5 wrong passwords offline. Syncing waits for the next online login |
 | A4, M1, M2, N1, D1, W1, X1 | Not started (P2 and P3) |
 
 ## Stack
 
 Kotlin, Jetpack Compose with Material 3, MVVM with Hilt, Retrofit + OkHttp + kotlinx.serialization
-(amounts are `BigDecimal`, never floating point), DataStore for small settings.
+(amounts are `BigDecimal`, never floating point), Room for expenses kept on the phone, WorkManager for sync,
+DataStore for small settings.
 Android 8.0 (API 26) and newer.
 
 - `core/`: plain Kotlin, no Android. The API client (cookie jar, CSRF header, session expiry), the
-  backend's models, Indian rupee and date formatting, and the expense and password rules.
-- `app/`: the Android app. Screens and view models under `ui/`, repositories and session handling under `data/`.
+  backend's models, the sync engine (`sync/`), offline login, Indian rupee and date formatting, and the
+  expense and password rules.
+- `app/`: the Android app. Screens and view models under `ui/`, repositories, session handling and the Room
+  database under `data/`, the background sync worker under `sync/`.
 
 ## Build
 

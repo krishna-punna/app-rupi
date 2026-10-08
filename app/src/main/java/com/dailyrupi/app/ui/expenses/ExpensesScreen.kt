@@ -2,7 +2,6 @@ package com.dailyrupi.app.ui.expenses
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,7 +12,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -42,23 +44,25 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dailyrupi.app.ui.components.CenteredMessage
+import com.dailyrupi.app.ui.components.SyncLabel
 import com.dailyrupi.app.ui.components.FullScreenLoading
 import com.dailyrupi.core.format.Formats
-import com.dailyrupi.core.model.Expense
 import com.dailyrupi.core.model.ExpenseSummary
+import com.dailyrupi.core.sync.LocalExpense
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExpensesScreen(
     onAdd: () -> Unit,
-    onOpen: (Long) -> Unit,
+    onOpen: (String) -> Unit,
+    onSync: () -> Unit,
     viewModel: ExpensesViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
 
     // Undo for 5 seconds: the repository deletes when the time is up, which ends this effect.
-    LaunchedEffect(state.pendingDelete?.id) {
+    LaunchedEffect(state.pendingDelete?.key) {
         val pending = state.pendingDelete ?: return@LaunchedEffect
         val result = snackbar.showSnackbar(
             message = "Deleted ${pending.itemName} ${Formats.rupees(pending.amount)}",
@@ -74,7 +78,12 @@ fun ExpensesScreen(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Expenses") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Expenses") },
+                actions = { SyncAction(state.unsynced, state.needsAttention, onSync) },
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = onAdd) {
                 Icon(Icons.Filled.Add, contentDescription = "Add expense")
@@ -84,16 +93,15 @@ fun ExpensesScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             SummaryBar(state.summary)
-            when {
-                state.loading -> FullScreenLoading()
-                state.error != null && state.days.isEmpty() ->
-                    CenteredMessage(state.error!!, onRetry = { viewModel.refresh() })
-                else -> PullToRefreshBox(
+            if (state.loading) {
+                FullScreenLoading()
+            } else {
+                PullToRefreshBox(
                     isRefreshing = state.refreshing,
                     onRefresh = { viewModel.refresh() },
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    ExpenseList(state, onOpen, viewModel::loadMore)
+                    ExpenseList(state, onOpen)
                 }
             }
         }
@@ -126,8 +134,31 @@ private fun SummaryCell(label: String, value: String?, modifier: Modifier) {
     }
 }
 
+/** Opens the Sync screen; the badge counts changes not on the server yet, red when one was refused. */
 @Composable
-private fun ExpenseList(state: ExpensesUiState, onOpen: (Long) -> Unit, onLoadMore: () -> Unit) {
+private fun SyncAction(unsynced: Int, needsAttention: Int, onSync: () -> Unit) {
+    val description = when {
+        needsAttention > 0 -> "Sync, $needsAttention need attention"
+        unsynced > 0 -> "Sync, $unsynced not synced"
+        else -> "Sync"
+    }
+    IconButton(onClick = onSync) {
+        BadgedBox(
+            badge = {
+                if (unsynced > 0) {
+                    Badge(
+                        containerColor = if (needsAttention > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary,
+                    ) { Text(unsynced.toString()) }
+                }
+            },
+        ) {
+            Icon(Icons.Filled.Refresh, contentDescription = description)
+        }
+    }
+}
+
+@Composable
+private fun ExpenseList(state: ExpensesUiState, onOpen: (String) -> Unit) {
     if (state.days.isEmpty()) {
         // Still scrollable, so pull to refresh works on an empty list.
         LazyColumn(Modifier.fillMaxSize()) {
@@ -153,24 +184,16 @@ private fun ExpenseList(state: ExpensesUiState, onOpen: (Long) -> Unit, onLoadMo
                     Text(Formats.rupees(day.total), style = MaterialTheme.typography.titleSmall)
                 }
             }
-            items(day.expenses, key = { it.id }) { expense ->
-                ExpenseRow(expense, onClick = { onOpen(expense.id) })
+            items(day.expenses, key = { it.key }) { expense ->
+                ExpenseRow(expense, onClick = { onOpen(expense.key) })
                 HorizontalDivider(Modifier.padding(start = 16.dp))
-            }
-        }
-        if (state.canLoadMore) {
-            item(key = "more") {
-                LaunchedEffect(state.days.sumOf { it.expenses.size }) { onLoadMore() }
-                Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
             }
         }
     }
 }
 
 @Composable
-private fun ExpenseRow(expense: Expense, onClick: () -> Unit) {
+private fun ExpenseRow(expense: LocalExpense, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -195,6 +218,7 @@ private fun ExpenseRow(expense: Expense, onClick: () -> Unit) {
             expense.note?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            SyncLabel(expense)
         }
         Text(
             Formats.rupees(expense.amount),

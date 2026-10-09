@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A rupee sign, centred in the adaptive icon's safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,34h32v5h-11.5c1.8,1.6 3,3.6 3.4,6h8.1v5h-8.1c-0.9,5.6 -5.4,9.3 -12,9.9l15.3,14.1h-7.4l-15.3,-14.1v-4.9h5.5c4.4,0 7.5,-1.9 8.3,-5h-13.8v-5h13.7c-0.8,-3.1 -3.8,-5 -8.2,-5h-5.5z" />
+</vector>
